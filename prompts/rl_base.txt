@@ -1,15 +1,11 @@
 ### Task
-You are an expert in the field of implicit discourse relations. Your task is to determine the semantic-logical relationship between two given text segments and select the most appropriate relation label.
+You are an expert in the field of implicit discourse relations. Your task is to determine the semantic-logical relationship between two given text segments and select the most appropriate relation label. Output only one of A, B, C, or D, and enclose it in \boxed{{}}.
 
-### Input
+### Relations
+{relation_terms}
+
+### Segments
 Text segment 1: {arg1}
 Text segment 2: {arg2}
 
-### Relation labels
-A. Comparison
-B. Contingency
-C. Expansion
-D. Temporal
-
-### Format Requirements
-Finally, output only {{A, B, C, D}} enclosed in \boxed{{}}.
+Your answer:

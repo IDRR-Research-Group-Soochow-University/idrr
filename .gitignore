@@ -3,7 +3,7 @@
 *.pyc
 
 data/
-expts/
+expt/
 results/
 
 .venv/
