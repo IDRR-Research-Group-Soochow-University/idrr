@@ -5,6 +5,7 @@
 set -x
 
 export CUDA_VISIBLE_DEVICES=0,1
+export PYTHONPATH=/data/whsun/idrr
 
 use_dynamic_bsz=True
 actor_ppo_max_token_len=$((1024 * 8))
@@ -24,7 +25,7 @@ python3 -m verl.trainer.main_ppo \
     data.train_files=data/rl/verl/pdtb2/top/qwen3_train.parquet \
     data.val_files=data/rl/verl/pdtb2/top/qwen3_test.parquet \
     data.train_batch_size=256 \
-    data.max_prompt_length=512 \
+    data.max_prompt_length=1024 \
     data.max_response_length=2048 \
     \
     critic.strategy=fsdp2 \
