@@ -3,7 +3,9 @@
 *.pyc
 *.log
 
-data/
+data/*
+!data/dataset_info.json
+
 expt/
 checkpoints/
 results/
