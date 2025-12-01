@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "6"
 
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
@@ -125,11 +125,18 @@ def generate_with_vllm(
     prompts: List[str],
     temperature: float = 0.6,
     top_p: float = 0.95,
+    gpu_memory_utilization: float = 0.71,
     max_tokens: int = 2048
 ) -> List[Dict[str, Any]]:
     sampling_params = SamplingParams(temperature=temperature, top_p=top_p)
-    llm = LLM(model=model_path)
-    outputs = llm.generate(prompts, sampling_params=sampling_params, max_model_len=8192)
+    llm = LLM(
+        model=model_path,
+        gpu_memory_utilization=gpu_memory_utilization,
+        )
+    outputs = llm.generate(
+        prompts,
+        sampling_params=sampling_params,
+        )
 
     results: List[Dict[str, Any]] = []
     for i, output in enumerate(outputs):
@@ -171,6 +178,7 @@ if __name__ == "__main__":
     parser.add_argument("--temperature", type=float, default=0.6)
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--max-tokens", type=int, default=2048)
+    parser.add_argument("--gpu_memory_utilization", type=float, default=0.71)
 
     args = parser.parse_args()
 
@@ -180,12 +188,14 @@ if __name__ == "__main__":
             ckpt_path=args.ckpt,
             add_system_prompt=args.add_system_prompt
         )
+        prompts *= 10000
         results = generate_with_vllm(
             model_path=args.ckpt,
             prompts=prompts,
             temperature=args.temperature,
             top_p=args.top_p,
-            max_tokens=args.max_tokens
+            max_tokens=args.max_tokens,
+            gpu_memory_utilization=args.gpu_memory_utilization
         )
         # 合并 meta 与抽取到的 pred
         merged_rows = []
@@ -211,7 +221,7 @@ if __name__ == "__main__":
             prompts=prompts,
             temperature=args.temperature,
             top_p=args.top_p,
-            max_tokens=args.max_tokens
+            # max_tokens=args.max_tokens
         )
         rows = []
         for i, r in enumerate(results):
