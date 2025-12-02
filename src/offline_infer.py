@@ -132,6 +132,7 @@ def generate_with_vllm(
     llm = LLM(
         model=model_path,
         gpu_memory_utilization=gpu_memory_utilization,
+        max_model_len=8192
         )
     outputs = llm.generate(
         prompts,
