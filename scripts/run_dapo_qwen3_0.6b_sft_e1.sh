@@ -2,10 +2,10 @@
 # set -euxo pipefail
 
 export PYTHONPATH=/data/whsun/idrr
-export CUDA_VISIBLE_DEVICES=0,7
+export CUDA_VISIBLE_DEVICES=5,7
 
 # 显存占用相关
-MODEL_PATH=expt/rl_cold_start/qwen3-0.6B
+MODEL_PATH=/data/whsun/idrr/expt/rl_cold_start/merged-qwen3-0.6B
 train_prompt_bsz=256
 train_prompt_mini_bsz=32
 
@@ -20,18 +20,18 @@ n_gpus_per_node=2
 gen_tp=1
 
 use_dynamic_bsz=True
-actor_ppo_max_token_len=$((1024 * 4))
-infer_ppo_max_token_len=$((1024 * 4))
+actor_ppo_max_token_len=$((1024 * 8)) # >= max_prompt_length + max_response_length (1024 + 1024*5 = 6144)
+infer_ppo_max_token_len=$((1024 * 8)) # >= max_prompt_length + max_response_length (1024 + 1024*5 = 6144)
 offload=False
 
 
 # RL算法相关
 adv_estimator=grpo
-use_kl_in_reward=False
+use_kl_in_reward=False # True
 
-kl_coef=0.0
-use_kl_loss=False
-kl_loss_coef=0.0
+kl_coef=0.0 # 0.001
+use_kl_loss=False # True
+kl_loss_coef=0.0 # 0.2
 
 clip_ratio_low=0.2
 clip_ratio_high=0.28
@@ -40,7 +40,7 @@ loss_agg_mode="token-mean"
 
 
 # rollout相关
-temperature=1.0
+temperature=1.0 # 0.7
 top_p=1.0
 top_k=-1
 
@@ -128,7 +128,7 @@ python3 -m recipe.dapo.main_dapo \
     trainer.n_gpus_per_node=${n_gpus_per_node} \
     trainer.val_before_train=True \
     trainer.test_freq=1 \
-    trainer.save_freq=-1 \
-    trainer.total_epochs=10 \
+    trainer.save_freq=10 \
+    trainer.total_epochs=3 \
     trainer.default_local_dir="Qwen3-0.6B-E1-DAPO" \
     trainer.resume_mode=auto $@ 2>&1 | tee dapo_log.log
