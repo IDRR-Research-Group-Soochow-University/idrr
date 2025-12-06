@@ -2,26 +2,26 @@
 # set -euxo pipefail
 
 export PYTHONPATH=/data/whsun/idrr
-export CUDA_VISIBLE_DEVICES=7
+export CUDA_VISIBLE_DEVICES=1,3
 
 # 显存占用相关
-MODEL_PATH=/data/whsun/idrr/expt/rl_cold_start/merged-qwen3-0.6B
+MODEL_PATH=expt/rl_cold_start/pdtb2/merged-qwen3-0.6B
 train_prompt_bsz=256
 train_prompt_mini_bsz=32
 
 max_prompt_length=1024
-max_response_length=$((1024 * 5))
+max_response_length=$((1024 * 2))
 enable_overlong_buffer=True
 overlong_buffer_len=$((1024 * 2))
 overlong_penalty_factor=1.0
 
-sp_size=1
-n_gpus_per_node=1
+sp_size=2
+n_gpus_per_node=2
 gen_tp=1
 
 use_dynamic_bsz=True
-actor_ppo_max_token_len=$((1024 * 8)) # >= max_prompt_length + max_response_length (1024 + 1024*5 = 6144)
-infer_ppo_max_token_len=$((1024 * 8)) # >= max_prompt_length + max_response_length (1024 + 1024*5 = 6144)
+actor_ppo_max_token_len=$((1024 * 4)) # >= max_prompt_length + max_response_length (1024 + 1024*2 = 3072)
+infer_ppo_max_token_len=$((1024 * 4)) # >= max_prompt_length + max_response_length (1024 + 1024*2 = 3072)
 offload=False
 
 
@@ -129,7 +129,7 @@ python3 -m recipe.dapo.main_dapo \
     trainer.n_gpus_per_node=${n_gpus_per_node} \
     trainer.val_before_train=True \
     trainer.test_freq=1 \
-    trainer.save_freq=10 \
-    trainer.total_epochs=3 \
+    trainer.save_freq=2 \
+    trainer.total_epochs=5 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto $@ 2>&1 | tee dapo_log.log
