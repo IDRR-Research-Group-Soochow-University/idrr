@@ -5,7 +5,7 @@ from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
 
 from IDRR_data import IDRRDataFrames
-from utils.utils import read_file, re_search
+from utils.utils import read_file, re_search, write_file
 
 import json
 import argparse
@@ -65,11 +65,11 @@ def build_alpaca_prompts(
     data_path: str,
     ckpt_path: str,
     add_system_prompt: bool = False
-) -> Tuple[List[str], List[Dict[str, Any]]]:
+    ) -> Tuple[List[str], List[Dict[str, Any]]]:
     tokenizer = AutoTokenizer.from_pretrained(ckpt_path)
     items = load_alpaca_data(data_path)
     prompts: List[str] = []
-    metas: List[Dict[str, Any]] = []
+    # metas: List[Dict[str, Any]] = []
 
     for i, item in enumerate(items):
         instruction = item.get("instruction", "")
@@ -86,13 +86,13 @@ def build_alpaca_prompts(
             messages, tokenize=False, add_generation_prompt=True
         )
         prompts.append(prompt_text)
-        metas.append({
-            "idx": i,
-            "instruction": instruction,
-            "input": input_,
-            "output": output_
-        })
-    return prompts, metas
+        # metas.append({
+        #     "idx": i,
+        #     "instruction": instruction,
+        #     "input": input_,
+        #     "output": output_
+        # })
+    return prompts
 
 # -------------------------------
 # 兼容：原 verl 格式（保留）
@@ -115,7 +115,7 @@ def build_prompts(data_format, data_path=TEST_DATA_PATH, ckpt_path=CKPT_PATH):
 def extract_prediction_from_text(text: str) -> Optional[str]:
     # 优先提取 \boxed{}；若失败尝试 box
     if 'box' in text:
-        return re_search(text, type="boxed")
+        return re_search(text, type="box")
     elif "Relation: " in text:
         return text.split('Relation: ')[0]
     return None
@@ -127,12 +127,14 @@ def generate_with_vllm(
     top_p: float = 0.95,
     gpu_memory_utilization: float = 0.71,
     max_tokens: int = 2048
-) -> List[Dict[str, Any]]:
-    sampling_params = SamplingParams(temperature=temperature, top_p=top_p)
+    ) -> List[Dict[str, Any]]:
+    sampling_params = SamplingParams(temperature=temperature, top_p=top_p, max_tokens=max_tokens)
     llm = LLM(
         model=model_path,
         gpu_memory_utilization=gpu_memory_utilization,
-        max_model_len=8192
+        max_model_len=8192,
+        dtype="half",
+        enforce_eager=True
         )
     outputs = llm.generate(
         prompts,
@@ -149,15 +151,6 @@ def generate_with_vllm(
         })
     return results
 
-# -------------------------------
-# 新增：保存结果
-# -------------------------------
-def save_jsonl(rows: List[Dict[str, Any]], out_path: str) -> None:
-    out_p = Path(out_path)
-    out_p.parent.mkdir(parents=True, exist_ok=True)
-    with out_p.open("w", encoding="utf-8") as f:
-        for row in rows:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 def default_out_path(data_path: str, model_path: str) -> str:
     d = Path(data_path)
@@ -184,36 +177,40 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.data_format == "alpaca":
-        prompts, metas = build_alpaca_prompts(
+            
+        prompts = build_alpaca_prompts(
             data_path=args.data_path,
             ckpt_path=args.ckpt,
             add_system_prompt=args.add_system_prompt
         )
         prompts *= 10000
-        results = generate_with_vllm(
-            model_path=args.ckpt,
-            prompts=prompts,
-            temperature=args.temperature,
-            top_p=args.top_p,
-            max_tokens=args.max_tokens,
-            gpu_memory_utilization=args.gpu_memory_utilization
-        )
-        # 合并 meta 与抽取到的 pred
-        merged_rows = []
-        for r in results:
-            idx = r["idx"]
-            meta = metas[idx] if idx < len(metas) else {}
-            pred = extract_prediction_from_text(r["output_text"])
-            merged_rows.append({
-                "idx": idx,
-                "prompt": r["prompt"],
-                "output_text": r["output_text"],
-                "pred": pred,
-                "meta": meta
-            })
         out_path = args.out or default_out_path(args.data_path, args.ckpt)
-        save_jsonl(merged_rows, out_path)
-        print(f"Saved {len(merged_rows)} predictions to: {out_path}")
+        if os.path.exists(out_path):
+            results = read_file(out_path)
+            for i, row in results.items():
+                results[i]['pred'] = extract_prediction_from_text(row["output_text"])
+            write_file(data=results, path=out_path)
+            print(f"Saved {len(results)} predictions to: {out_path}")
+        else:
+            results = generate_with_vllm(
+                model_path=args.ckpt,
+                prompts=prompts,
+                temperature=args.temperature,
+                top_p=args.top_p,
+                max_tokens=args.max_tokens,
+                gpu_memory_utilization=args.gpu_memory_utilization
+            )
+            # 合并 meta 与抽取到的 pred
+            data_dict = {}
+            for i, r in enumerate(results):
+                pred = extract_prediction_from_text(r["output_text"])
+                data_dict[str(i+1)] = {
+                    "prompt": r["prompt"],
+                    "output_text": r["output_text"],
+                    "pred": pred,
+                }
+            write_file(data=data_dict, path=out_path)
+            print(f"Saved {len(data_dict)} predictions to: {out_path}")
     else:
         # 保留对 VERL 的兼容：同样只做推理+保存
         prompts, labels = build_prompts("verl", data_path=args.data_path, ckpt_path=args.ckpt)
@@ -235,5 +232,5 @@ if __name__ == "__main__":
                 "meta": {"label": labels[i] if labels and i < len(labels) else None}
             })
         out_path = args.out or default_out_path(args.data_path, args.ckpt)
-        save_jsonl(rows, out_path)
+        write_file(data=rows, path=out_path)
         print(f"Saved {len(rows)} predictions to: {out_path}")
