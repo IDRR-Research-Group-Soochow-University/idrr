@@ -19,11 +19,6 @@ ANSWER_MAP = {
     "Expansion": "C",
     "Temporal": "D"
 }
-# CKPT_PATH = "/data/whsun/pretrained_models/Qwen/Qwen2.5-1.5B-Instruct"
-# CKPT_PATH = "expt/rl_cold_start/qwen3-0.6B/epo1/merged-qwen3-0.6B"
-# CKPT_PATH = "/data/whsun/pretrained_models/Qwen/Qwen3-0.6B"
-CKPT_PATH = "/data/whsun/idrr/expt/arg2def/pdtb2/llama3/epo5/merged"
-TEST_DATA_PATH = "data/rl_cold_start/pdtb2/top/sft_rl_test.jsonl"
 
 def read_parquet(file_path):
     import pandas as pd
@@ -31,44 +26,17 @@ def read_parquet(file_path):
     return df.to_dict(orient='records')
 
 # -------------------------------
-# 新增：通用数据加载（alpaca）
+# 新增：构建 alpaca prompts and labels
 # -------------------------------
-def load_alpaca_data(path: str) -> List[Dict[str, Any]]:
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"Data file not found: {path}")
-    if p.suffix.lower() == ".jsonl":
-        items = []
-        with p.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                items.append(json.loads(line))
-        return items
-    elif p.suffix.lower() == ".json":
-        with p.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
-                return data["data"]
-            if isinstance(data, list):
-                return data
-            raise ValueError("Unsupported JSON structure for alpaca data.")
-    else:
-        # 回退到项目内的 read_file（若其能处理该格式）
-        return list(read_file(path))
-
-# -------------------------------
-# 新增：构建 alpaca prompts
-# -------------------------------
-def build_alpaca_prompts(
+def build_alpaca_prompts_labels(
     data_path: str,
     ckpt_path: str,
     add_system_prompt: bool = False
     ) -> Tuple[List[str], List[Dict[str, Any]]]:
     tokenizer = AutoTokenizer.from_pretrained(ckpt_path)
-    items = load_alpaca_data(data_path)
+    items = read_file(data_path)
     prompts: List[str] = []
+    labels: List[str] = []
     # metas: List[Dict[str, Any]] = []
 
     for i, item in enumerate(items):
@@ -86,18 +54,19 @@ def build_alpaca_prompts(
             messages, tokenize=False, add_generation_prompt=True
         )
         prompts.append(prompt_text)
+        labels.append(extract_prediction_from_text(output_) if output_ else None)
         # metas.append({
         #     "idx": i,
         #     "instruction": instruction,
         #     "input": input_,
         #     "output": output_
         # })
-    return prompts
+    return prompts, labels
 
 # -------------------------------
 # 兼容：原 verl 格式（保留）
 # -------------------------------
-def build_prompts(data_format, data_path=TEST_DATA_PATH, ckpt_path=CKPT_PATH):
+def build_prompts(data_format, data_path, ckpt_path):
     prompts = []
     labels = []
     if data_format == 'verl':  # List[dict_keys(['data_source', 'prompt', 'reward_model'])]
@@ -105,7 +74,7 @@ def build_prompts(data_format, data_path=TEST_DATA_PATH, ckpt_path=CKPT_PATH):
             prompts.append(item['prompt'])
             labels.append(item['reward_model']['ground_truth'])
     elif data_format == 'alpaca':  # 与旧接口兼容（返回 labels=None）
-        prompts, metas = build_alpaca_prompts(data_path, ckpt_path)
+        prompts, metas = build_alpaca_prompts_labels(data_path, ckpt_path)
         return prompts, None, metas
     return prompts, labels
 
@@ -123,18 +92,27 @@ def extract_prediction_from_text(text: str) -> Optional[str]:
 def generate_with_vllm(
     model_path: str,
     prompts: List[str],
+    do_sample: bool = True,
     temperature: float = 0.6,
+    top_k: int = 50,
     top_p: float = 0.95,
     gpu_memory_utilization: float = 0.71,
-    max_tokens: int = 2048
+    max_tokens: int = 1024,
+    max_model_len: int = 2047
     ) -> List[Dict[str, Any]]:
-    sampling_params = SamplingParams(temperature=temperature, top_p=top_p, max_tokens=max_tokens)
+    sampling_params = SamplingParams(
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        # do_sample=do_sample,
+        max_tokens=max_tokens,
+    )
     llm = LLM(
         model=model_path,
         gpu_memory_utilization=gpu_memory_utilization,
-        max_model_len=8192,
-        dtype="half",
-        enforce_eager=True
+        max_model_len=max_model_len,
+        # dtype="half",
+        # enforce_eager=True
         )
     outputs = llm.generate(
         prompts,
@@ -166,24 +144,60 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Offline inference (save-only).")
     parser.add_argument("--data-format", type=str, default="alpaca", choices=["alpaca", "verl"], help="Data format to load.")
     parser.add_argument("--data-path", type=str, default="/data/whsun/idrr/data/arg2def/pdtb2/aplaca/test.json", help="Path to test dataset.")
-    parser.add_argument("--ckpt", type=str, default=CKPT_PATH, help="Model checkpoint path.")
+    parser.add_argument("--ckpt", type=str, default=None, help="Model checkpoint path.")
     parser.add_argument("--out", type=str, default=None)
-    parser.add_argument("--add-system-prompt", action="store_true", help="Whether to prepend SYSTEM_PROMPT in chat messages.")
+    parser.add_argument("--add-system-prompt", action="store_true", default=False, help="Whether to prepend SYSTEM_PROMPT in chat messages.")
+    # New inference parameters
+    parser.add_argument("--cutoff_len", type=int, default=1024, help="Maximum context length (used as max_model_len).")
+    parser.add_argument("--max_new_tokens", type=int, default=2048, help="Maximum new tokens to generate.")
+    parser.add_argument("--use_generate_config", action="store_true", default=True, help="Use generation_config.json when present; CLI overrides.")
     parser.add_argument("--temperature", type=float, default=0.6)
-    parser.add_argument("--top-p", type=float, default=0.95)
-    parser.add_argument("--max-tokens", type=int, default=2048)
+    parser.add_argument("--top_p", type=float, default=0.95)
+    parser.add_argument("--top_k", type=int, default=50)
+    parser.add_argument("--enable-thinking", action="store_true", default=True, help="Enable reasoning SYSTEM_PROMPT.")
     parser.add_argument("--gpu_memory_utilization", type=float, default=0.71)
 
     args = parser.parse_args()
 
+    # Merge generation config from ckpt if enabled
+    gen_cfg: Dict[str, Any] = {}
+    if args.use_generate_config and args.ckpt:
+        # Try to locate generation_config.json under ckpt path
+        ckpt_dir = Path(args.ckpt)
+        cand_paths = [
+            ckpt_dir / "generation_config.json",
+        ]
+        # Also check common nested path pattern
+        cand_paths += list(ckpt_dir.glob("**/generation_config.json"))
+        gen_path = next((p for p in cand_paths if p.exists()), None)
+        if gen_path:
+            try:
+                with open(gen_path, "r", encoding="utf-8") as f:
+                    gen_cfg = json.load(f)
+            except Exception as e:
+                print(f"Warning: failed to read generation_config.json: {e}")
+
+    # Helper to prefer CLI over config
+    def cfg_or_cli(name: str, cli_value: Any, default: Any) -> Any:
+        # If the CLI value differs from its parser default, keep CLI; else use config value if available
+        # We don't have parser defaults here, so we consider provided cli_value and fall back to config or default
+        return gen_cfg.get(name, cli_value if cli_value is not None else default)
+
+    # Resolve sampling args
+    do_sample = gen_cfg.get("do_sample", True)
+    temperature = cfg_or_cli("temperature", args.temperature, 0.6)
+    top_k = cfg_or_cli("top_k", args.top_k, 50)
+    top_p = cfg_or_cli("top_p", args.top_p, 0.95)
+    max_model_len = args.cutoff_len + args.max_new_tokens
+
     if args.data_format == "alpaca":
             
-        prompts = build_alpaca_prompts(
+        prompts, labels = build_alpaca_prompts_labels(
             data_path=args.data_path,
             ckpt_path=args.ckpt,
             add_system_prompt=args.add_system_prompt
         )
-        prompts *= 10000
+        # prompts *= 10000
         out_path = args.out or default_out_path(args.data_path, args.ckpt)
         if os.path.exists(out_path):
             results = read_file(out_path)
@@ -195,9 +209,12 @@ if __name__ == "__main__":
             results = generate_with_vllm(
                 model_path=args.ckpt,
                 prompts=prompts,
-                temperature=args.temperature,
-                top_p=args.top_p,
-                max_tokens=args.max_tokens,
+                do_sample=do_sample,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                max_tokens=args.max_new_tokens,
+                max_model_len=max_model_len,
                 gpu_memory_utilization=args.gpu_memory_utilization
             )
             # 合并 meta 与抽取到的 pred
@@ -217,8 +234,12 @@ if __name__ == "__main__":
         results = generate_with_vllm(
             model_path=args.ckpt,
             prompts=prompts,
-            temperature=args.temperature,
-            top_p=args.top_p,
+            do_sample=do_sample,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+            max_tokens=args.max_new_tokens,
+            max_model_len=max_model_len,
             # max_tokens=args.max_tokens
         )
         rows = []
