@@ -8,7 +8,7 @@ from collections import defaultdict
 from sklearn.metrics import precision_recall_fscore_support, classification_report
 
 from utils.mylogger import logger
-from utils.utils import read_file, write_file
+from utils.utils import read_file, write_file, re_search
 
 LABEL_LIST = [
     'Comparison',
@@ -30,15 +30,18 @@ SEC_LABEL_LIST = [
     'Synchrony'
 ]
 
-def extract_label(pred):
+def extract_label(pred, type='box'):
     if '</think>' in pred:
         pred = pred.split('</think>')[-1]
-    elif 'Relation: ' in pred:
+    if 'Relation: ' in pred:
         pred = pred.split('Relation: ')[-1].split('.')[0]
-    for label in LABEL_LIST:
-        if label in pred:
-            return label
-    raise ValueError(f"Label {pred} not found in {LABEL_LIST}, pred: \n-----\n{pred}\n-------\n")
+    else:
+        pred = re_search(pred, type)
+    # for label in LABEL_LIST:
+    #     if label in pred:
+    #         return label
+    return pred.strip()
+    raise ValueError(f"Prediction: ***{pred}*** not found in {LABEL_LIST}, pred: \n-----\n{pred}\n-------\n")
 
 def extract_answer(s):
     # matches = re.findall(r'<answer[^>]*>(.*?)<\/answer>', s, re.DOTALL)
@@ -84,7 +87,7 @@ def eval(gen_preds, data_path):
         # pred = extract_answer(it['predict'])
         pred = extract_label(it['predict'])
         label = extract_label(it['label'])
-        it['pred_label'] = pred
+        it['pred'] = pred
         preds.append(pred)
         labels.append(label)
         cnt += 1
