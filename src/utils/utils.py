@@ -1,3 +1,4 @@
+import os
 import re
 import ast
 import json
@@ -26,6 +27,7 @@ def write_file(path: str, data: list | dict) -> None:
     # 检查文件路径是否以 '.txt' 结尾
     if not isinstance(path, str):
         path = str(path)
+    os.path.exists(os.path.dirname(path)) or os.makedirs(os.path.dirname(path))
     if path.endswith('.txt'):
         with open(path, 'w', encoding='utf-8') as f:
             for i in data:
