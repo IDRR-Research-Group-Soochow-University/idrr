@@ -2,17 +2,19 @@
 # set -euxo pipefail
 
 export PYTHONPATH=/data/whsun/idrr
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=0
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export HYDRA_FULL_ERROR=1
 
 # 显存占用相关
-MODEL_PATH=/data/whsun/pretrained_models/Qwen/Qwen3-8B
-train_prompt_bsz=1
+MODEL_PATH=expt/rl_cold_start/pdtb2/Qwen3-8B/epo1/lora_merged/lora_merged
+train_prompt_bsz=32
 train_prompt_mini_bsz=1
 
-max_prompt_length=1024
-max_response_length=$((1024 * 1))
-enable_overlong_buffer=True
-overlong_buffer_len=$((1024 * 1))
+max_prompt_length=600
+max_response_length=512
+enable_overlong_buffer=False
+overlong_buffer_len=512
 overlong_penalty_factor=1.0
 
 sp_size=1
@@ -20,8 +22,8 @@ n_gpus_per_node=1
 gen_tp=1
 
 use_dynamic_bsz=True
-actor_ppo_max_token_len=$((1024 * 2)) # >= max_prompt_length + max_response_length (1024 + 1024*2 = 3072)
-infer_ppo_max_token_len=$((1024 * 2)) # >= max_prompt_length + max_response_length (1024 + 1024*2 = 3072)
+actor_ppo_max_token_len=1112
+infer_ppo_max_token_len=1112
 offload=True
 
 
@@ -50,8 +52,8 @@ val_temperature=0.6
 enable_filter_groups=True
 filter_groups_metric=acc
 max_num_gen_batches=10
-gen_prompt_bsz=$((train_prompt_bsz * 3))
-n_resp_per_prompt=16
+gen_prompt_bsz=$((train_prompt_bsz * 2))
+n_resp_per_prompt=4
 
 # 命名相关
 project_name='verl_pdtb'
@@ -81,7 +83,7 @@ python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.85 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.75 \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
