@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# set -euxo pipefail
+# lora settings Ref: https://verl.readthedocs.io/en/v0.5.x/advance/ppo_lora.html
+# set -eux pipefail
 
-export PYTHONPATH=/data/whsun/idrr
-export CUDA_VISIBLE_DEVICES=0
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HYDRA_FULL_ERROR=1
+export PYTHONPATH=/data/whsun/idrr
+export CUDA_VISIBLE_DEVICES=1
 
 # 显存占用相关
-MODEL_PATH=expt/rl_cold_start/pdtb2/Qwen3-8B/epo1/lora_merged/lora_merged
-train_prompt_bsz=32
+MODEL_PATH=expt/rl_cold_start/pdtb2/Qwen3-8B/epo1/lora_merged
+train_prompt_bsz=1
 train_prompt_mini_bsz=1
 
-max_prompt_length=600
+max_prompt_length=512
 max_response_length=512
 enable_overlong_buffer=False
 overlong_buffer_len=512
@@ -22,8 +23,8 @@ n_gpus_per_node=1
 gen_tp=1
 
 use_dynamic_bsz=True
-actor_ppo_max_token_len=1112
-infer_ppo_max_token_len=1112
+actor_ppo_max_token_len=$((1024 * 2)) # >= max_prompt_length + max_response_length (512 + 512 = 1024)
+infer_ppo_max_token_len=$((1024 * 2)) # >= max_prompt_length + max_response_length (512 + 512 = 1024)
 offload=True
 
 
@@ -53,7 +54,7 @@ enable_filter_groups=True
 filter_groups_metric=acc
 max_num_gen_batches=10
 gen_prompt_bsz=$((train_prompt_bsz * 2))
-n_resp_per_prompt=4
+n_resp_per_prompt=5
 
 # 命名相关
 project_name='verl_pdtb'
@@ -70,6 +71,7 @@ python3 -m recipe.dapo.main_dapo \
     data.max_response_length=${max_response_length} \
     data.gen_batch_size=${gen_prompt_bsz} \
     data.train_batch_size=${train_prompt_bsz} \
+    data.filter_overlong_prompts=True \
     \
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.use_kl_in_reward=${use_kl_in_reward} \
@@ -78,13 +80,19 @@ python3 -m recipe.dapo.main_dapo \
     algorithm.filter_groups.max_num_gen_batches=${max_num_gen_batches} \
     algorithm.filter_groups.metric=${filter_groups_metric} \
     \
-    actor_rollout_ref.model.lora_rank=8 \
+    actor_rollout_ref.model.lora_rank=32 \
+    actor_rollout_ref.model.lora_alpha=32 \
+    actor_rollout_ref.rollout.load_format=safetensors \
+    actor_rollout_ref.model.target_modules=all-linear \
+    actor_rollout_ref.rollout.layered_summon=True \
+    \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.75 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.85 \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
+    actor_rollout_ref.rollout.max_model_len=$((max_prompt_length + max_response_length)) \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
@@ -119,7 +127,7 @@ python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high} \
     actor_rollout_ref.actor.clip_ratio_c=10.0 \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${actor_ppo_max_token_len} \
-    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.actor.optim.lr=3e-5 \
     actor_rollout_ref.actor.optim.lr_warmup_steps=2 \
     actor_rollout_ref.actor.optim.weight_decay=0.1 \
     actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
