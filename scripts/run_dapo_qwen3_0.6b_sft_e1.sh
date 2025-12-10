@@ -2,17 +2,17 @@
 # set -euxo pipefail
 
 export PYTHONPATH=/data/whsun/idrr
-export CUDA_VISIBLE_DEVICES=1,3
+export CUDA_VISIBLE_DEVICES=1,2
 
 # 显存占用相关
 MODEL_PATH=expt/rl_cold_start/pdtb2/merged-qwen3-0.6B
-train_prompt_bsz=256
+train_prompt_bsz=128
 train_prompt_mini_bsz=32
 
 max_prompt_length=1024
-max_response_length=$((1024 * 2))
+max_response_length=$((1024 * 1))
 enable_overlong_buffer=True
-overlong_buffer_len=$((1024 * 2))
+overlong_buffer_len=$((1024 * 1))
 overlong_penalty_factor=1.0
 
 sp_size=2
@@ -20,9 +20,9 @@ n_gpus_per_node=2
 gen_tp=1
 
 use_dynamic_bsz=True
-actor_ppo_max_token_len=$((1024 * 4)) # >= max_prompt_length + max_response_length (1024 + 1024*2 = 3072)
-infer_ppo_max_token_len=$((1024 * 4)) # >= max_prompt_length + max_response_length (1024 + 1024*2 = 3072)
-offload=False
+actor_ppo_max_token_len=$((1024 * 8)) # >= max_prompt_length + max_response_length (1024 + 1024*2 = 3072)
+infer_ppo_max_token_len=$((1024 * 24)) # >= max_prompt_length + max_response_length (1024 + 1024*2 = 3072)
+offload=True
 
 
 # RL算法相关
@@ -50,13 +50,13 @@ val_temperature=0.6
 enable_filter_groups=True
 filter_groups_metric=acc
 max_num_gen_batches=10
-gen_prompt_bsz=$((train_prompt_bsz * 3))
+gen_prompt_bsz=$((train_prompt_bsz * 4))
 n_resp_per_prompt=16
 
 
 # 命名相关
 project_name='verl_pdtb'
-exp_name='Qwen3-0.6B-E1-DAPO'
+exp_name='Qwen3-0.6B-E1-DAPO-group16'
 CKPTS_DIR=${CKPTS_DIR:-"checkpoints/${project_name}/${exp_name}"}
 
 
@@ -103,7 +103,7 @@ python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.75 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
-    actor_rollout_ref.rollout.max_num_batched_tokens=$((max_prompt_length + max_response_length)) \
+    actor_rollout_ref.rollout.max_num_batched_tokens=$((1024 * 8)) \
     actor_rollout_ref.rollout.temperature=${temperature} \
     actor_rollout_ref.rollout.top_p=${top_p} \
     actor_rollout_ref.rollout.top_k="${top_k}" \
@@ -129,7 +129,7 @@ python3 -m recipe.dapo.main_dapo \
     trainer.n_gpus_per_node=${n_gpus_per_node} \
     trainer.val_before_train=True \
     trainer.test_freq=1 \
-    trainer.save_freq=2 \
+    trainer.save_freq=5 \
     trainer.total_epochs=5 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto $@ 2>&1 | tee dapo_log.log
